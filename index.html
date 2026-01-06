@@ -36,11 +36,7 @@
 <div id="screenMenu" class="screen">
     <h1 style="color: #ff00cc; font-size: 36px; text-shadow: 0 0 15px #ff00cc; margin-bottom: 20px;">NEON DASH</h1>
     <input type="text" id="playerName" placeholder="ТВОЙ НИК" maxlength="10">
-    
-    <div class="leaderboard" id="globalBoardMenu">
-        <div style="font-size: 12px; color: #888;">Загрузка рекордов...</div>
-    </div>
-
+    <div class="leaderboard" id="globalBoardMenu"><div style="font-size: 12px; color: #888;">Загрузка ТОПа...</div></div>
     <button class="btn" onclick="startGame()">ИГРАТЬ</button>
 </div>
 
@@ -48,16 +44,13 @@
     <h2 style="color: #ff3333; font-size: 24px;">ИГРА ОКОНЧЕНА</h2>
     <div id="finalScore" style="font-size: 60px; margin: 5px 0; font-weight: 900;">0</div>
     <p style="color: #ffd700; margin-bottom: 15px;">СОБРАНО МОНЕТ: <span id="sessionCoins">0</span></p>
-    
-    <div class="leaderboard" id="globalBoardOver">
-        </div>
-
+    <div class="leaderboard" id="globalBoardOver"></div>
     <button class="btn" onclick="startGame()">ЕЩЁ РАЗ</button>
     <button class="btn btn-small" onclick="backToMenu()">В МЕНЮ</button>
 </div>
 
 <script>
-    // --- ВСТАВЬ СВОЙ ID СЮДА ---
+    // Твой персональный ID для рекордов
     const BIN_ID = "22228939e981de6b7c03"; 
     const API_URL = `https://api.npoint.io/${BIN_ID}`;
 
@@ -79,7 +72,6 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Управление
     const move = (e) => {
         let x = e.touches ? e.touches[0].clientX : e.clientX;
         targetX = x;
@@ -87,20 +79,22 @@
     window.addEventListener('touchmove', e => { if(isPlaying) e.preventDefault(); move(e); }, {passive: false});
     window.addEventListener('mousemove', move);
 
-    // Глобальные рекорды
     async function fetchLeaderboard(elementId) {
         const board = document.getElementById(elementId);
         try {
-            let res = await fetch(API_URL);
+            // Добавляем timestamp чтобы избежать кэширования старых данных
+            let res = await fetch(API_URL + "?t=" + Date.now());
             let scores = await res.json();
             if(!Array.isArray(scores)) scores = [];
-            
             let html = '<div style="color:#00ffcc; font-size:12px; margin-bottom:5px">ГЛОБАЛЬНЫЙ ТОП</div>';
+            if(scores.length === 0) html += '<div style="color:#666; font-size:11px">Нет рекордов</div>';
             scores.slice(0, 5).forEach((s, i) => {
                 html += `<div class="row ${i===0?'gold':''}"><span>${i+1}. ${s.name}</span><span>${s.score}</span></div>`;
             });
             board.innerHTML = html;
-        } catch(e) { board.innerHTML = "Ошибка загрузки ТОПа"; }
+        } catch(e) { 
+            board.innerHTML = "<div style='color:#ff3333; font-size:10px'>Ошибка загрузки топа<br>Проверьте npoint.io</div>"; 
+        }
     }
 
     async function sendScoreAndRefresh(name, finalScore) {
@@ -108,29 +102,24 @@
             let res = await fetch(API_URL);
             let scores = await res.json();
             if(!Array.isArray(scores)) scores = [];
-            
             scores.push({name: name, score: Math.floor(finalScore)});
             scores.sort((a,b) => b.score - a.score);
             let top10 = scores.slice(0, 10);
-            
-            await fetch(API_URL, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(top10)
+            await fetch(API_URL, { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify(top10) 
             });
             fetchLeaderboard('globalBoardOver');
-        } catch(e) { console.error("Не удалось отправить рекорд"); }
+        } catch(e) { console.error("Ошибка отправки"); }
     }
 
     function startGame() {
         let n = document.getElementById('playerName').value || "Пилот";
         storage.name = n;
         localStorage.setItem('neonDashData', JSON.stringify(storage));
-        
-        isPlaying = true;
-        score = 0; coinsTotal = 0; frame = 0; speed = 1;
+        isPlaying = true; score = 0; coinsTotal = 0; frame = 0; speed = 1;
         enemies = []; dropCoins = [];
-        
         document.getElementById('screenMenu').classList.add('hidden');
         document.getElementById('screenOver').classList.add('hidden');
         document.getElementById('hud').classList.remove('hidden');
@@ -148,42 +137,23 @@
         if(!isPlaying) return;
         ctx.fillStyle = 'rgba(5, 5, 12, 0.35)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        frame++;
-        score += 0.15;
-        speed = 1 + (score / 1200);
+        frame++; score += 0.15; speed = 1 + (score / 1200);
         playerX += (targetX - playerX) * 0.15;
-
-        // Рисуем игрока
-        ctx.fillStyle = '#00ffff';
-        ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff';
+        ctx.fillStyle = '#00ffff'; ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff';
         ctx.fillRect(playerX - 15, canvas.height - 120, 30, 30);
         ctx.shadowBlur = 0;
 
-        // Враги
-        if(frame % Math.floor(45/speed) === 0) {
-            enemies.push({x: Math.random()*canvas.width, y: -50, v: 4.5*speed, s: 30});
-        }
+        if(frame % Math.floor(45/speed) === 0) enemies.push({x: Math.random()*canvas.width, y: -50, v: 4.5*speed, s: 30});
         enemies.forEach((e, i) => {
-            e.y += e.v;
-            ctx.fillStyle = '#ff0055';
-            ctx.fillRect(e.x-e.s/2, e.y, e.s, e.s);
+            e.y += e.v; ctx.fillStyle = '#ff0055'; ctx.fillRect(e.x-e.s/2, e.y, e.s, e.s);
             if(Math.abs(playerX - e.x) < 25 && Math.abs(canvas.height-105 - e.y) < 25) endGame();
             if(e.y > canvas.height) enemies.splice(i, 1);
         });
 
-        // Монетки
-        if(frame % 90 === 0) {
-            dropCoins.push({x: Math.random()*canvas.width, y: -50, v: 4*speed});
-        }
+        if(frame % 90 === 0) dropCoins.push({x: Math.random()*canvas.width, y: -50, v: 4*speed});
         dropCoins.forEach((c, i) => {
-            c.y += c.v;
-            ctx.fillStyle = '#ffd700';
-            ctx.beginPath(); ctx.arc(c.x, c.y, 10, 0, Math.PI*2); ctx.fill();
-            if(Math.hypot(playerX - c.x, (canvas.height-105) - c.y) < 30) {
-                coinsTotal++;
-                dropCoins.splice(i, 1);
-            }
+            c.y += c.v; ctx.fillStyle = '#ffd700'; ctx.beginPath(); ctx.arc(c.x, c.y, 10, 0, Math.PI*2); ctx.fill();
+            if(Math.hypot(playerX - c.x, (canvas.height-105) - c.y) < 30) { coinsTotal++; dropCoins.splice(i, 1); }
             if(c.y > canvas.height) dropCoins.splice(i, 1);
         });
 
@@ -193,18 +163,15 @@
     }
 
     function endGame() {
-        isPlaying = false;
-        storage.coins += coinsTotal;
-        localStorage.setItem('neonDashData', JSON.stringify(storage));
-
+        isPlaying = false; storage.coins += coinsTotal; localStorage.setItem('neonDashData', JSON.stringify(storage));
         document.getElementById('finalScore').innerText = Math.floor(score);
         document.getElementById('sessionCoins').innerText = coinsTotal;
         document.getElementById('screenOver').classList.remove('hidden');
-        document.getElementById('globalBoardOver').innerHTML = "Отправка рекорда...";
-        
+        document.getElementById('globalBoardOver').innerHTML = "<div style='font-size:11px;color:#888'>Обновление рейтинга...</div>";
         sendScoreAndRefresh(storage.name, score);
     }
 
+    // Загружаем ТОП сразу при открытии
     fetchLeaderboard('globalBoardMenu');
 </script>
 </body>
