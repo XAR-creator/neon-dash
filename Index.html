@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Dash Ultra</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap');
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        body { background: #050505; overflow: hidden; font-family: 'Orbitron', sans-serif; color: white; touch-action: none; }
+        canvas { display: block; }
+        
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); text-align: center; padding: 20px; }
+        .hidden { display: none !important; }
+
+        .btn { background: linear-gradient(135deg, #ff00cc, #333399); border: 2px solid #fff; color: white; padding: 15px 30px; font-size: 18px; border-radius: 50px; margin: 10px; cursor: pointer; font-weight: 900; min-width: 200px; text-transform: uppercase; }
+        .btn-small { background: #222; border-color: #00ffcc; padding: 10px 20px; font-size: 14px; min-width: 140px; }
+
+        .leaderboard { background: rgba(255,255,255,0.05); border-radius: 15px; width: 100%; max-width: 320px; margin: 15px 0; padding: 15px; min-height: 100px; }
+        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 13px; }
+        .gold { color: #ffd700; font-weight: bold; }
+        
+        #hud { position: absolute; top: 20px; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; z-index: 50; pointer-events: none; font-size: 20px; text-shadow: 0 0 10px #00ffcc; }
+        input { background: #111; border: 1px solid #ff00cc; color: white; padding: 12px; border-radius: 10px; text-align: center; margin-bottom: 15px; font-family: 'Orbitron'; width: 200px; }
+    </style>
+</head>
+<body>
+
+<div id="hud" class="hidden">
+    <div id="hudScore">0</div>
+    <div id="hudCoins" style="color: #ffd700;">💰 0</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="screenMenu" class="screen">
+    <h1 style="color: #ff00cc; font-size: 36px; text-shadow: 0 0 15px #ff00cc; margin-bottom: 20px;">NEON DASH</h1>
+    <input type="text" id="playerName" placeholder="ТВОЙ НИК" maxlength="10">
+    
+    <div class="leaderboard" id="globalBoardMenu">
+        <div style="font-size: 12px; color: #888;">Загрузка рекордов...</div>
+    </div>
+
+    <button class="btn" onclick="startGame()">ИГРАТЬ</button>
+</div>
+
+<div id="screenOver" class="screen hidden">
+    <h2 style="color: #ff3333; font-size: 24px;">ИГРА ОКОНЧЕНА</h2>
+    <div id="finalScore" style="font-size: 60px; margin: 5px 0; font-weight: 900;">0</div>
+    <p style="color: #ffd700; margin-bottom: 15px;">СОБРАНО МОНЕТ: <span id="sessionCoins">0</span></p>
+    
+    <div class="leaderboard" id="globalBoardOver">
+        </div>
+
+    <button class="btn" onclick="startGame()">ЕЩЁ РАЗ</button>
+    <button class="btn btn-small" onclick="backToMenu()">В МЕНЮ</button>
+</div>
+
+<script>
+    // --- ВСТАВЬ СВОЙ ID СЮДА ---
+    const BIN_ID = "22228939e981de6b7c03"; 
+    const API_URL = `https://api.npoint.io/${BIN_ID}`;
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let storage = JSON.parse(localStorage.getItem('neonDashData')) || { coins: 0, name: '' };
+    if(storage.name) document.getElementById('playerName').value = storage.name;
+
+    let isPlaying = false, score = 0, coinsTotal = 0, frame = 0, speed = 1;
+    let playerX = 0, targetX = 0, enemies = [], dropCoins = [];
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        playerX = canvas.width / 2;
+        targetX = playerX;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Управление
+    const move = (e) => {
+        let x = e.touches ? e.touches[0].clientX : e.clientX;
+        targetX = x;
+    };
+    window.addEventListener('touchmove', e => { if(isPlaying) e.preventDefault(); move(e); }, {passive: false});
+    window.addEventListener('mousemove', move);
+
+    // Глобальные рекорды
+    async function fetchLeaderboard(elementId) {
+        const board = document.getElementById(elementId);
+        try {
+            let res = await fetch(API_URL);
+            let scores = await res.json();
+            if(!Array.isArray(scores)) scores = [];
+            
+            let html = '<div style="color:#00ffcc; font-size:12px; margin-bottom:5px">ГЛОБАЛЬНЫЙ ТОП</div>';
+            scores.slice(0, 5).forEach((s, i) => {
+                html += `<div class="row ${i===0?'gold':''}"><span>${i+1}. ${s.name}</span><span>${s.score}</span></div>`;
+            });
+            board.innerHTML = html;
+        } catch(e) { board.innerHTML = "Ошибка загрузки ТОПа"; }
+    }
+
+    async function sendScoreAndRefresh(name, finalScore) {
+        try {
+            let res = await fetch(API_URL);
+            let scores = await res.json();
+            if(!Array.isArray(scores)) scores = [];
+            
+            scores.push({name: name, score: Math.floor(finalScore)});
+            scores.sort((a,b) => b.score - a.score);
+            let top10 = scores.slice(0, 10);
+            
+            await fetch(API_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(top10)
+            });
+            fetchLeaderboard('globalBoardOver');
+        } catch(e) { console.error("Не удалось отправить рекорд"); }
+    }
+
+    function startGame() {
+        let n = document.getElementById('playerName').value || "Пилот";
+        storage.name = n;
+        localStorage.setItem('neonDashData', JSON.stringify(storage));
+        
+        isPlaying = true;
+        score = 0; coinsTotal = 0; frame = 0; speed = 1;
+        enemies = []; dropCoins = [];
+        
+        document.getElementById('screenMenu').classList.add('hidden');
+        document.getElementById('screenOver').classList.add('hidden');
+        document.getElementById('hud').classList.remove('hidden');
+        loop();
+    }
+
+    function backToMenu() {
+        document.getElementById('screenOver').classList.add('hidden');
+        document.getElementById('screenMenu').classList.remove('hidden');
+        document.getElementById('hud').classList.add('hidden');
+        fetchLeaderboard('globalBoardMenu');
+    }
+
+    function loop() {
+        if(!isPlaying) return;
+        ctx.fillStyle = 'rgba(5, 5, 12, 0.35)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        frame++;
+        score += 0.15;
+        speed = 1 + (score / 1200);
+        playerX += (targetX - playerX) * 0.15;
+
+        // Рисуем игрока
+        ctx.fillStyle = '#00ffff';
+        ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff';
+        ctx.fillRect(playerX - 15, canvas.height - 120, 30, 30);
+        ctx.shadowBlur = 0;
+
+        // Враги
+        if(frame % Math.floor(45/speed) === 0) {
+            enemies.push({x: Math.random()*canvas.width, y: -50, v: 4.5*speed, s: 30});
+        }
+        enemies.forEach((e, i) => {
+            e.y += e.v;
+            ctx.fillStyle = '#ff0055';
+            ctx.fillRect(e.x-e.s/2, e.y, e.s, e.s);
+            if(Math.abs(playerX - e.x) < 25 && Math.abs(canvas.height-105 - e.y) < 25) endGame();
+            if(e.y > canvas.height) enemies.splice(i, 1);
+        });
+
+        // Монетки
+        if(frame % 90 === 0) {
+            dropCoins.push({x: Math.random()*canvas.width, y: -50, v: 4*speed});
+        }
+        dropCoins.forEach((c, i) => {
+            c.y += c.v;
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath(); ctx.arc(c.x, c.y, 10, 0, Math.PI*2); ctx.fill();
+            if(Math.hypot(playerX - c.x, (canvas.height-105) - c.y) < 30) {
+                coinsTotal++;
+                dropCoins.splice(i, 1);
+            }
+            if(c.y > canvas.height) dropCoins.splice(i, 1);
+        });
+
+        document.getElementById('hudScore').innerText = Math.floor(score);
+        document.getElementById('hudCoins').innerText = "💰 " + coinsTotal;
+        requestAnimationFrame(loop);
+    }
+
+    function endGame() {
+        isPlaying = false;
+        storage.coins += coinsTotal;
+        localStorage.setItem('neonDashData', JSON.stringify(storage));
+
+        document.getElementById('finalScore').innerText = Math.floor(score);
+        document.getElementById('sessionCoins').innerText = coinsTotal;
+        document.getElementById('screenOver').classList.remove('hidden');
+        document.getElementById('globalBoardOver').innerHTML = "Отправка рекорда...";
+        
+        sendScoreAndRefresh(storage.name, score);
+    }
+
+    fetchLeaderboard('globalBoardMenu');
+</script>
+</body>
+</html>
